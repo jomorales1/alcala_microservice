@@ -59,7 +59,8 @@ def check_tuition_status(tuition_id):
     try:
         tuition_data = json.loads(requests.get(alcala_url + f'/matriculas/{str(tuition_id)}', headers={
             'Authorization': f'Bearer {access_token}'
-        }))
+        }).text)
+        print(json.dumps(tuition_data, indent=4))
     except Exception as error:
         print(f'Error while requesting tuition data: {str(error)}')
         return
