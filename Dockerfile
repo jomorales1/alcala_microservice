@@ -30,6 +30,7 @@ RUN openssl req -x509 -nodes -days 365 -subj "/C=CA/ST=QC/O=AquinasNetwork, Inc.
 RUN apk add curl
 RUN apk add nano
 
+COPY config/nginx.conf /etc/nginx/
 COPY config/alcala-ms-nginx.conf /etc/nginx/conf.d/
 COPY config/uwsgi.ini /etc/uwsgi/
 COPY config/supervisord.conf /etc/
