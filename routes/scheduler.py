@@ -9,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 
 import os
 import json
+import sqlite3
 import smtplib
 import requests
 
@@ -21,6 +22,14 @@ client_secret = params.get('Alcala', 'client_secret')
 
 parser = reqparse.RequestParser()
 parser.add_argument('tuition_id', type=int, required=True, help='Tuition id is required')
+
+DATABASE = '/alcala_microservice/alcala.db'
+conn = sqlite3.connect(DATABASE)
+cursor = conn.cursor()
+res = cursor.execute("SELECT name FROM sqlite_master")
+if res.fetchone() is None:
+    cursor.execute("CREATE TABLE access_token(token, expiration_date)")
+conn.close()
 
 def send_message(email):
     email_sender = params.get('Mailing', 'email')
@@ -45,16 +54,41 @@ def send_message(email):
 
 @shared_task()
 def check_tuition_status(tuition_id):
-    # TODO: request another access_token only if the current one is outdated
+    # Request another access_token only if the current one is outdated
+    access_token = ''
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
     try:
-        access_token = json.loads(requests.post(alcala_url + '/oauth/token', json={
-            'grant_type': 'client_credentials',
-            'client_id': client_id,
-            'client_secret': client_secret
-        }).text)['access_token']
+        res = cursor.execute('SELECT token, expiration_date FROM access_token')
+        data = res.fetchone()
+        if data is not None:
+            current_date = datetime.now()
+            expiration_date = datetime.strptime(data[1]) - timedelta(minutes=5)
+            if current_date < expiration_date:
+                access_token = data[0]
+            else:
+                cursor.execute('DELETE from access_token WHERE token = ?', (data[0],))
+                conn.commit()
     except Exception as error:
+        conn.close()
+        print(f'Error while reading access token from database: {str(error)}')
+        return
+    try:
+        if not access_token:
+            at_response = json.loads(requests.post(alcala_url + '/oauth/token', json={
+                'grant_type': 'client_credentials',
+                'client_id': client_id,
+                'client_secret': client_secret
+            }).text)
+            access_token = at_response['access_token']
+            expiration_date = datetime.now() + timedelta(seconds=int(at_response['expires_in']))
+            cursor.execute('INSERT INTO access_token VALUES (?, ?)', (access_token, datetime.strftime(expiration_date)))
+            conn.commit()
+    except Exception as error:
+        conn.close()
         print(f'Error while requesting access token: {str(error)}')
         return
+    conn.close()
     # Getting tuition data
     try:
         tuition_data = json.loads(requests.get(alcala_url + f'/matriculas/{str(tuition_id)}', headers={
