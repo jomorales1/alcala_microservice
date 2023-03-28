@@ -23,13 +23,16 @@ client_secret = params.get('Alcala', 'client_secret')
 parser = reqparse.RequestParser()
 parser.add_argument('tuition_id', type=int, required=True, help='Tuition id is required')
 
-DATABASE = '/alcala_microservice/alcala.db'
-conn = sqlite3.connect(DATABASE)
-cursor = conn.cursor()
-res = cursor.execute("SELECT name FROM sqlite_master")
-if res.fetchone() is None:
-    cursor.execute("CREATE TABLE access_token(token, expiration_date)")
-conn.close()
+DATABASE = cd + '/../alcala.db'
+try:
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    res = cursor.execute("SELECT name FROM sqlite_master")
+    if res.fetchone() is None:
+        cursor.execute("CREATE TABLE access_token(token, expiration_date)")
+    conn.close()
+except Exception as error:
+    print(f'Error while creating database: {str(error)}')
 
 def send_message(email):
     email_sender = params.get('Mailing', 'email')
@@ -63,7 +66,7 @@ def check_tuition_status(tuition_id):
         data = res.fetchone()
         if data is not None:
             current_date = datetime.now()
-            expiration_date = datetime.strptime(data[1]) - timedelta(minutes=5)
+            expiration_date = datetime.strptime(data[1], '%Y-%m-%dT%H:%M:%S') - timedelta(minutes=5)
             if current_date < expiration_date:
                 access_token = data[0]
             else:
@@ -82,7 +85,7 @@ def check_tuition_status(tuition_id):
             }).text)
             access_token = at_response['access_token']
             expiration_date = datetime.now() + timedelta(seconds=int(at_response['expires_in']))
-            cursor.execute('INSERT INTO access_token VALUES (?, ?)', (access_token, datetime.strftime(expiration_date)))
+            cursor.execute('INSERT INTO access_token VALUES (?, ?)', (access_token, datetime.strftime(expiration_date, '%Y-%m-%dT%H:%M:%S')))
             conn.commit()
     except Exception as error:
         conn.close()
