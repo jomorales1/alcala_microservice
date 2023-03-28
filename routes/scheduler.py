@@ -67,6 +67,7 @@ def send_message(email, username, password):
         text = msg.as_string()
         server.sendmail(email_sender, [email], text)
         server.quit()
+        print('Email sent')
     except (Exception, smtplib.SMTPException) as error:
         print(f'SMTP server connection error: {str(error)}')
 
@@ -94,6 +95,7 @@ def notify_admin(tuition_id):
         text = msg.as_string()
         server.sendmail(email_sender, [admin_email], text)
         server.quit()
+        print('Notification sent')
     except (Exception, smtplib.SMTPException) as error:
         print(f'SMTP server connection error: {str(error)}')
 
@@ -141,6 +143,7 @@ def check_tuition_status(tuition_id, prev_attempts):
                 print(f'Error while requesting access_token: [{str(at_request.status_code)}] {str(at_request.text)}')
                 # Check is max attempts were reached
                 if prev_attempts < MAX_RETRIES - 1:
+                    print('Scheduling next task...')
                     exec_date = datetime.utcnow() + timedelta(minutes=3)
                     check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
                 else:
@@ -173,6 +176,7 @@ def check_tuition_status(tuition_id, prev_attempts):
             print(f'Error while requesting tuition data: [{str(tuition_request.status_code)}] {str(tuition_request.text)}')
             # Check is max attempts were reached
             if prev_attempts < MAX_RETRIES - 1:
+                print('Scheduling next task...')
                 exec_date = datetime.utcnow() + timedelta(minutes=3)
                 check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
             else:
@@ -189,6 +193,7 @@ def check_tuition_status(tuition_id, prev_attempts):
     if tuition_data['data']['estado_matricula'] == 'pendiente':
         # Check is max attempts were reached
         if prev_attempts < MAX_RETRIES - 1:
+            print('Scheduling next task...')
             exec_date = datetime.utcnow() + timedelta(minutes=3)
             check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
         else:
