@@ -13,16 +13,11 @@ RUN apk add pkgconfig
 RUN apk add redis
 RUN apk add --no-cache bash
 
-RUN pip3 install --upgrade pip
-RUN pip3 install uwsgi
-RUN pip3 install flask
-RUN pip3 install flask-restful
-RUN pip3 install requests
-RUN pip3 install celery
-RUN pip3 install redis
-
 COPY . ./alcala_microservice/
 WORKDIR /alcala_microservice/
+
+RUN pip3 install --upgrade pip
+RUN pip3 install -r requirements.txt
 
 RUN apk add openssl
 RUN openssl req -x509 -nodes -days 365 -subj "/C=CA/ST=QC/O=AquinasNetwork, Inc./CN=aquinasnetwork.com" -addext "subjectAltName=DNS:aquinasnetwork.com" -newkey rsa:2048 -keyout /etc/ssl/private/nginx-selfsigned.key -out /etc/ssl/certs/nginx-selfsigned.crt
