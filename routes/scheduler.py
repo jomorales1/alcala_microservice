@@ -13,6 +13,7 @@ import sqlite3
 import smtplib
 import requests
 
+# Reading params file
 cd = os.path.dirname(os.path.abspath(__file__))
 params = ConfigParser()
 params.read(cd + '/../params.cfg')
@@ -20,10 +21,15 @@ alcala_url = params.get('Alcala', 'api_url')
 client_id = params.get('Alcala', 'client_id')
 client_secret = params.get('Alcala', 'client_secret')
 
+# Setting tuition_id to be required
 parser = reqparse.RequestParser()
 parser.add_argument('tuition_id', type=int, required=True, help='Tuition id is required')
 
+# Defining constants
+MAX_RETRIES = int(params.get('Alcala', 'max_retries'))
 DATABASE = cd + '/../alcala.db'
+
+# Setting up database
 try:
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
@@ -34,14 +40,24 @@ try:
 except Exception as error:
     print(f'Error while creating database: {str(error)}')
 
-def send_message(email):
+def send_message(email, username, password):
+    """
+        Send email to the user identified with `email`.
+
+        To create the message a HTML template is used, which contains user credentials to access the course.
+    """
     email_sender = params.get('Mailing', 'email')
     email_sender_pswd = params.get('Mailing', 'password')
     msg = MIMEMultipart()
     msg['From'] = email_sender
     msg['To'] = email
-    msg['Subject'] = 'Your tuition is ready'
-    msg.attach(MIMEText('Go to https://classroom.clicformacion.es/campus'))
+    msg['Subject'] = 'Your course is ready!'
+    with open(cd + '/../html/enrollment_message.html', 'r', encoding='utf-8') as html_file:
+        content = html_file.read()
+        content = content.replace('{{username}}', username)
+        content = content.replace('{{password}}', password)
+        content = content.replace('{{moodle_url}}', params.get('Alcala', 'moodle_url'))
+        msg.attach(MIMEText(content, 'html'))
     try:
         server = smtplib.SMTP('smtp.office365.com', 587)
         server.starttls()
@@ -54,10 +70,45 @@ def send_message(email):
     except (Exception, smtplib.SMTPException) as error:
         print(f'SMTP server connection error: {str(error)}')
 
+def notify_admin(tuition_id):
+    """
+        Notify admin when tuition is not approved after MAX_RETRIES attempts.
+    """
+    admin_email = params.get('Mailing', 'admin_email')
+    email_sender = params.get('Mailing', 'email')
+    email_sender_pswd = params.get('Mailing', 'password')
+    msg = MIMEMultipart()
+    msg['From'] = email_sender
+    msg['To'] = admin_email
+    msg['Subject'] = 'Course enrollment failed'
+    with open(cd + '/../html/admin_notification.html', 'r', encoding='utf-8') as html_file:
+        content = html_file.read()
+        content = content.replace('{{tuition_id}}', str(tuition_id))
+        msg.attach(MIMEText(content, 'html'))
+    try:
+        server = smtplib.SMTP('smtp.office365.com', 587)
+        server.starttls()
+        server.ehlo()
+        server.esmtp_features['auth'] = 'LOGIN DIGEST-MD5 PLAIN'
+        server.login(email_sender, email_sender_pswd)
+        text = msg.as_string()
+        server.sendmail(email_sender, [admin_email], text)
+        server.quit()
+    except (Exception, smtplib.SMTPException) as error:
+        print(f'SMTP server connection error: {str(error)}')
 
 @shared_task()
-def check_tuition_status(tuition_id):
-    # Request another access_token only if the current one is outdated
+def check_tuition_status(tuition_id, prev_attempts):
+    """
+        Celery task to check tuition status.
+        1. Request access token if there is not in the SQLite database.
+        2. Request tuition data.
+        3. If tuition is not approved schedule next task, otherwise notify user.
+
+        If after MAX_RETRIES attempts tuition status is `pending` stop scheduling
+        tasks and notify admin.
+    """
+    # Check if there is a valid access_token in the SQLite database
     access_token = ''
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
@@ -76,13 +127,28 @@ def check_tuition_status(tuition_id):
         conn.close()
         print(f'Error while reading access token from database: {str(error)}')
         return
+    # Request access_token if not found previously
     try:
         if not access_token:
-            at_response = json.loads(requests.post(alcala_url + '/oauth/token', json={
+            at_request = requests.post(alcala_url + '/oauth/token', json={
                 'grant_type': 'client_credentials',
                 'client_id': client_id,
                 'client_secret': client_secret
-            }).text)
+            })
+            # If request failed shedule next task
+            if not at_request.ok:
+                conn.close()
+                print(f'Error while requesting access_token: [{str(at_request.status_code)}] {str(at_request.text)}')
+                # Check is max attempts were reached
+                if prev_attempts < MAX_RETRIES - 1:
+                    exec_date = datetime.utcnow() + timedelta(minutes=3)
+                    check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
+                else:
+                    print(f'Max retries exceeded ({str(prev_attempts + 1)}) with tuition_id {str(tuition_id)}')
+                    notify_admin(tuition_id)
+                return
+            # Process response and save new access_token
+            at_response = json.loads(at_request.text)
             access_token = at_response['access_token']
             expiration_date = datetime.now() + timedelta(seconds=int(at_response['expires_in']))
             cursor.execute('INSERT INTO access_token VALUES (?, ?)', (access_token, datetime.strftime(expiration_date, '%Y-%m-%dT%H:%M:%S')))
@@ -92,21 +158,45 @@ def check_tuition_status(tuition_id):
         print(f'Error while requesting access token: {str(error)}')
         return
     conn.close()
-    # Getting tuition data
+    # Request tuition data
     try:
-        tuition_data = json.loads(requests.get(alcala_url + f'/matriculas/{str(tuition_id)}', headers={
+        tuition_request = requests.get(alcala_url + f'/matriculas/{str(tuition_id)}', headers={
             'Authorization': f'Bearer {access_token}'
-        }).text)
+        })
+        # If status code is 404 not found, stop scheduling tasks
+        if tuition_request.status_code == 404:
+            print(f'Tuition not found. Next task will not be scheduled')
+            return
+        # If request failed shedule next task
+        if not tuition_request.ok:
+            conn.close()
+            print(f'Error while requesting tuition data: [{str(tuition_request.status_code)}] {str(tuition_request.text)}')
+            # Check is max attempts were reached
+            if prev_attempts < MAX_RETRIES - 1:
+                exec_date = datetime.utcnow() + timedelta(minutes=3)
+                check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
+            else:
+                print(f'Max retries exceeded ({str(prev_attempts + 1)}) with tuition_id {str(tuition_id)}')
+                notify_admin(tuition_id)
+            return
+        # Process response
+        tuition_data = json.loads(tuition_request.text)
         print(json.dumps(tuition_data, indent=4))
     except Exception as error:
         print(f'Error while requesting tuition data: {str(error)}')
         return
-    # TODO: number of retries
+    # Check tuition status
     if tuition_data['data']['estado_matricula'] == 'pendiente':
-        exec_date = datetime.utcnow() + timedelta(minutes=5)
-        check_tuition_status.apply_async((tuition_id,), eta=exec_date)
+        # Check is max attempts were reached
+        if prev_attempts < MAX_RETRIES - 1:
+            exec_date = datetime.utcnow() + timedelta(minutes=3)
+            check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
+        else:
+            print(f'Max retries exceeded ({str(prev_attempts + 1)}) with tuition_id {str(tuition_id)}')
+            notify_admin(tuition_id)
     else:
-        send_message(tuition_data['data']['email'])
+        # Send email to user
+        send_message(tuition_data['data']['email'], tuition_data['data']['usuario'], tuition_data['data']['password'])
 
 class Scheduler(Resource):
     def post(self):
@@ -115,7 +205,7 @@ class Scheduler(Resource):
         # Calling celery task
         exec_date = datetime.utcnow() + timedelta(minutes=2)
         try:
-            check_tuition_status.apply_async((tuition_id,), eta=exec_date)
+            check_tuition_status.apply_async((tuition_id, 0), eta=exec_date)
         except Exception as error:
             return make_response(jsonify({'message': f'Error while creating task: {str(error)}'}), 500)
         return jsonify({'message': 'Task scheduled'})
