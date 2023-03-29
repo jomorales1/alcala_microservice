@@ -40,7 +40,7 @@ try:
 except Exception as error:
     print(f'Error while creating database: {str(error)}')
 
-def send_message(email, username, password):
+def send_message(email, username, password, name, lastname):
     """
         Send email to the user identified with `email`.
 
@@ -56,6 +56,8 @@ def send_message(email, username, password):
         content = html_file.read()
         content = content.replace('{{username}}', username)
         content = content.replace('{{password}}', password)
+        content = content.replace('{{name}}', name)
+        content = content.replace('{{lastname}}', lastname)
         content = content.replace('{{moodle_url}}', params.get('Alcala', 'moodle_url'))
         msg.attach(MIMEText(content, 'html'))
     try:
@@ -201,7 +203,7 @@ def check_tuition_status(tuition_id, prev_attempts):
             notify_admin(tuition_id)
     else:
         # Send email to user
-        send_message(tuition_data['data']['email'], tuition_data['data']['usuario'], tuition_data['data']['password'])
+        send_message(tuition_data['data']['email'], tuition_data['data']['usuario'], tuition_data['data']['password'], tuition_data['data']['nombre'], tuition_data['data']['apellidos'])
 
 class Scheduler(Resource):
     def post(self):
