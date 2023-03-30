@@ -24,6 +24,7 @@ client_secret = params.get('Alcala', 'client_secret')
 # Setting tuition_id to be required
 parser = reqparse.RequestParser()
 parser.add_argument('tuition_id', type=int, required=True, help='Tuition id is required')
+parser.add_argument('course_id', type=int, required=True, help='Course id is required')
 
 # Defining constants
 MAX_RETRIES = int(params.get('Alcala', 'max_retries'))
@@ -40,7 +41,7 @@ try:
 except Exception as error:
     print(f'Error while creating database: {str(error)}')
 
-def send_message(email, username, password, name, lastname):
+def send_message(course_id, email, username, password, name, lastname):
     """
         Send email to the user identified with `email`.
 
@@ -52,8 +53,13 @@ def send_message(email, username, password, name, lastname):
     msg['From'] = email_sender
     msg['To'] = email
     msg['Subject'] = 'Your course is ready!'
-    with open(cd + '/../html/enrollment_message.html', 'r', encoding='utf-8') as html_file:
+    with open(cd + '/../static/html/enrollment_message.html', 'r', encoding='utf-8') as html_file:
+        with open(cd + '/../static/data.json', 'r', encoding='utf-8') as json_file:
+            data = json.loads(json_file.read())
+            course_title = data[str(course_id)]['title']
         content = html_file.read()
+        content = content.replace('{{course_title}}', course_title)
+        content = content.replace('{{course_image_url}}', f'https://www.compumed.edu/files/123-1-image/course{str(course_id)}.jpg')
         content = content.replace('{{username}}', username)
         content = content.replace('{{password}}', password)
         content = content.replace('{{name}}', name)
@@ -84,7 +90,7 @@ def notify_admin(tuition_id):
     msg['From'] = email_sender
     msg['To'] = admin_email
     msg['Subject'] = 'Course enrollment failed'
-    with open(cd + '/../html/admin_notification.html', 'r', encoding='utf-8') as html_file:
+    with open(cd + '/../static/html/admin_notification.html', 'r', encoding='utf-8') as html_file:
         content = html_file.read()
         content = content.replace('{{tuition_id}}', str(tuition_id))
         msg.attach(MIMEText(content, 'html'))
@@ -102,7 +108,7 @@ def notify_admin(tuition_id):
         print(f'SMTP server connection error: {str(error)}')
 
 @shared_task()
-def check_tuition_status(tuition_id, prev_attempts):
+def check_tuition_status(tuition_id, course_id, prev_attempts):
     """
         Celery task to check tuition status.
         1. Request access token if there is not in the SQLite database.
@@ -203,16 +209,17 @@ def check_tuition_status(tuition_id, prev_attempts):
             notify_admin(tuition_id)
     else:
         # Send email to user
-        send_message(tuition_data['data']['email'], tuition_data['data']['usuario'], tuition_data['data']['password'], tuition_data['data']['nombre'], tuition_data['data']['apellidos'])
+        send_message(course_id, tuition_data['data']['email'], tuition_data['data']['usuario'], tuition_data['data']['password'], tuition_data['data']['nombre'], tuition_data['data']['apellidos'])
 
 class Scheduler(Resource):
     def post(self):
         args = parser.parse_args()
         tuition_id = args['tuition_id']
+        course_id = args['course_id']
         # Calling celery task
-        exec_date = datetime.utcnow() + timedelta(minutes=2)
+        exec_date = datetime.utcnow() + timedelta(minutes=1)
         try:
-            check_tuition_status.apply_async((tuition_id, 0), eta=exec_date)
+            check_tuition_status.apply_async((tuition_id, course_id, 0), eta=exec_date)
         except Exception as error:
             return make_response(jsonify({'message': f'Error while creating task: {str(error)}'}), 500)
         return jsonify({'message': 'Task scheduled'})
