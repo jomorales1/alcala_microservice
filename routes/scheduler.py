@@ -153,7 +153,7 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
                 if prev_attempts < MAX_RETRIES - 1:
                     print('Scheduling next task...')
                     exec_date = datetime.utcnow() + timedelta(minutes=3)
-                    check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
+                    check_tuition_status.apply_async((tuition_id, course_id, prev_attempts + 1), eta=exec_date)
                 else:
                     print(f'Max retries exceeded ({str(prev_attempts + 1)}) with tuition_id {str(tuition_id)}')
                     notify_admin(tuition_id)
@@ -186,7 +186,7 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
             if prev_attempts < MAX_RETRIES - 1:
                 print('Scheduling next task...')
                 exec_date = datetime.utcnow() + timedelta(minutes=3)
-                check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
+                check_tuition_status.apply_async((tuition_id, course_id, prev_attempts + 1), eta=exec_date)
             else:
                 print(f'Max retries exceeded ({str(prev_attempts + 1)}) with tuition_id {str(tuition_id)}')
                 notify_admin(tuition_id)
@@ -203,7 +203,7 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
         if prev_attempts < MAX_RETRIES - 1:
             print('Scheduling next task...')
             exec_date = datetime.utcnow() + timedelta(minutes=3)
-            check_tuition_status.apply_async((tuition_id, prev_attempts + 1), eta=exec_date)
+            check_tuition_status.apply_async((tuition_id, course_id, prev_attempts + 1), eta=exec_date)
         else:
             print(f'Max retries exceeded ({str(prev_attempts + 1)}) with tuition_id {str(tuition_id)}')
             notify_admin(tuition_id)
