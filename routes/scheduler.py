@@ -59,7 +59,7 @@ def send_message(course_id, email, username, password, name, lastname):
             course_title = data[str(course_id)]['title']
         content = html_file.read()
         content = content.replace('{{course_title}}', course_title)
-        content = content.replace('{{course_image_url}}', f'https://www.compumed.edu/files/123-1-image/course{str(course_id)}.jpg')
+        content = content.replace('{{course_image_url}}', f'https://www.compumed.edu/files/123-{str(course_id)}-image/course{str(course_id)}.jpg')
         content = content.replace('{{username}}', username)
         content = content.replace('{{password}}', password)
         content = content.replace('{{name}}', name)
