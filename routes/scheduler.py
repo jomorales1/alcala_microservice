@@ -186,7 +186,6 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
                 log_file.write(f'Error while requesting access token: {str(error)}\n')
                 notify_admin(tuition_id)
                 return
-        conn.close()
         # Request tuition data
         try:
             tuition_request = requests.get(alcala_url + f'/matriculas/{str(tuition_id)}', headers={
@@ -195,11 +194,14 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
             log_file.write(f'Access token response: [{str(tuition_request.status_code)}]\n{str(tuition_request.text)}\n')
             # If status code is 404 not found, stop scheduling tasks
             if tuition_request.status_code == 404:
+                conn.close()
                 print(f'Tuition not found. Next task will not be scheduled')
                 return
             # If request failed shedule next task
             if not tuition_request.ok:
-                conn.close()
+                if at_request.status_code == 401:
+                    cursor.execute('DELETE from access_token WHERE token = ?', (access_token,))
+                    conn.commit()
                 print(f'Error while requesting tuition data: [{str(tuition_request.status_code)}] {str(tuition_request.text)}')
                 # Check is max attempts were reached
                 if prev_attempts < MAX_RETRIES - 1:
@@ -209,15 +211,18 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
                 else:
                     print(f'Max retries exceeded ({str(prev_attempts + 1)}) with tuition_id {str(tuition_id)}')
                     notify_admin(tuition_id)
+                conn.close()
                 return
             # Process response
             tuition_data = json.loads(tuition_request.text)
             print(json.dumps(tuition_data, indent=4))
         except Exception as error:
+            conn.close()
             print(f'Error while requesting tuition data (tuition_id = {str(tuition_id)}): {str(error)}')
             log_file.write(f'Error while requesting tuition data: {str(error)}\n')
             notify_admin(tuition_id)
             return
+        conn.close()
         # Check tuition status
         if tuition_data['data']['estado_matricula'] == 'pendiente':
             # Check is max attempts were reached
