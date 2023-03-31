@@ -29,6 +29,7 @@ COPY config/nginx.conf /etc/nginx/
 COPY config/alcala-ms-nginx.conf /etc/nginx/conf.d/
 COPY config/uwsgi.ini /etc/uwsgi/
 COPY config/supervisord.conf /etc/
+RUN chmod a+rwx /alcala_microservice/
 
 EXPOSE 443
 

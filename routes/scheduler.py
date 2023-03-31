@@ -132,7 +132,10 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
         tasks and notify admin.
     """
     with open(LOGS_PATH + f'/{str(tuition_id)}.log', 'a+', encoding='utf-8') as log_file:
-        log_file.write(f'Task #{str(prev_attempts + 1)}\n')
+        if prev_attempts == 0:
+            log_file.write(f'Task #{str(prev_attempts + 1)}\n')
+        else:
+            log_file.write(f'\nTask #{str(prev_attempts + 1)}\n')
         log_file.write(f'Date: {datetime.strftime(datetime.utcnow(), "%Y-%m-%dT%H:%M:%S")}\n')
         # Check if there is a valid access_token in the SQLite database
         access_token = ''
@@ -160,7 +163,7 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
                     'client_id': client_id,
                     'client_secret': client_secret
                 })
-                log_file.write(f'Access token response: [{str(at_request.status_code)}]\n{str(at_request.text)}\n')
+                log_file.write(f'Access token response: [{str(at_request.status_code)}]\n{json.dumps(json.loads(at_request.text), indent=4)}\n')
                 # If request failed shedule next task
                 if not at_request.ok:
                     conn.close()
@@ -191,7 +194,7 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
             tuition_request = requests.get(alcala_url + f'/matriculas/{str(tuition_id)}', headers={
                 'Authorization': f'Bearer {access_token}'
             })
-            log_file.write(f'Access token response: [{str(tuition_request.status_code)}]\n{str(tuition_request.text)}\n')
+            log_file.write(f'Tuition response: [{str(tuition_request.status_code)}]\n{json.dumps(json.loads(tuition_request.text), indent=4)}\n')
             # If status code is 404 not found, stop scheduling tasks
             if tuition_request.status_code == 404:
                 conn.close()
