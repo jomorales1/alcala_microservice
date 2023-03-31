@@ -202,7 +202,7 @@ def check_tuition_status(tuition_id, course_id, prev_attempts):
                 return
             # If request failed shedule next task
             if not tuition_request.ok:
-                if at_request.status_code == 401:
+                if tuition_request.status_code == 401:
                     cursor.execute('DELETE from access_token WHERE token = ?', (access_token,))
                     conn.commit()
                 print(f'Error while requesting tuition data: [{str(tuition_request.status_code)}] {str(tuition_request.text)}')
